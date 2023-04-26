@@ -30,6 +30,7 @@ python37 -m pip install requirements.txt
 In the project directory, do 
 ```
 python37 -m venv venv
+```
 Then activate it with:
 ```
 venv\Scripts\activate
