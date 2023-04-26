@@ -15,6 +15,20 @@ rm.list_resources()
 
 '''
 **************************************************************************************************
+PPMS ROTATOR UTILITIES
+**************************************************************************************************
+updated 4/26/23
+Justin Michel
+michel.169@osu.edu
+'''
+
+#Check that the Python version is ok:
+import sys
+if float(sys.version.split(' ')[0].split('.')[0]) >= 3.8:
+    raise SystemError('Python 3.7 or less is required to interface with the PPMS. Pythonnet package does not work with newer Python versions.')
+
+'''
+**************************************************************************************************
 BASIC UTILITY FUNCTIONS
 **************************************************************************************************
 '''
