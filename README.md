@@ -36,9 +36,10 @@ Then activate it with:
 venv\Scripts\activate
 ```
 The prompt line should now show a ` (venv) ` at the beginning.
-You can then download the packages required as in 4.
+You can then download the packages required as above.
 If you plan to use notebooks, you will also need to add a kernel for the virtual environment with:
 ```
+python -m install ipykernel
 python37 -m ipykernel install --user --name=venvkernel
 ```
 Then when you start a notebook, simply select this kernel to use the virtual enviornment.
