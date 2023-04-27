@@ -21,6 +21,8 @@ updated 4/26/23
 Justin Michel
 michel.169@osu.edu
 '''
+# Empty class for dummy connection testing
+class Empty: pass
 
 #Check that the Python version is ok:
 import sys
@@ -42,14 +44,6 @@ def print_to_string(*args, **kwargs):
     return contents
     
     
-def getInstrumentfromName(BreakoutBoxConnections,name):
-    FoundInstrument=False
-    for i in BreakoutBoxConnections.InstrumentList:
-        if name in i.DeviceName:
-            FoundInstrument = True
-            return i
-    if not FoundInstrument:
-        raise NameError('Could not find {} in InstrumentList'.format(name))
         
 '''
 CONNECTION DEFINITION CLASSES
@@ -72,9 +66,10 @@ class RotPuckConnection:
     
 class Instrument:
     # Class for defining instrument properties of connected Keithleys.
-    def __init__(self,DeviceType,GPIBNumber,DeviceName='Default',SwitchLabels={}):
+    def __init__(self,DeviceType,GPIBNumber,DeviceName='Default',SwitchLabels={},Dummy=False):
         self.DeviceType=DeviceType
         self.GPIBNumber=GPIBNumber
+        self.Dummy=Dummy
         if self.DeviceType==2182:
             self.addKeithley2182(GPIBNumber,DeviceName=DeviceName,SwitchLabels=SwitchLabels)
         elif self.DeviceType==2400:
@@ -88,7 +83,11 @@ class Instrument:
             self.DeviceName = 'Voltmeter'
         else:
             self.DeviceName = DeviceName
-        self.InstrumentObject=rm.open_resource('GPIB0::{}::INSTR'.format(GPIBNumber))
+        if not self.Dummy:
+            self.InstrumentObject=rm.open_resource('GPIB0::{}::INSTR'.format(GPIBNumber))
+        else:
+            self.InstrumentObject=Empty()
+            print('Dummy 2182')
         print('Added Keithley 2182 with name {} and GPIB number {}'.format(self.DeviceName,GPIBNumber))
         if len(SwitchLabels) > 0:
             if len(SwitchLabels) == 2 or 4:
@@ -111,7 +110,11 @@ class Instrument:
             self.DeviceName = 'CurrentSource'
         else:
             self.DeviceName = DeviceName
-        self.InstrumentObject=Keithley2400("GPIB::{}".format(GPIBNumber))
+        if not self.Dummy:
+            self.InstrumentObject=Keithley2400("GPIB::{}".format(GPIBNumber))
+        else:
+            self.InstrumentObject=Empty()
+            print('Dummy 2400')
         print('Added Keithley 2400 with name {} and GPIB number {}'.format(self.DeviceName,GPIBNumber))
         if len(SwitchLabels) > 0:
             if len(SwitchLabels) == 2:
@@ -134,35 +137,94 @@ class BreakoutBoxConnections:
         self.RotPuckConnectionList=[]
         self.InstrumentList=[]
             
-    def addPPMS(self,PPMS_IP='192.168.0.7'):
-            self.PPMS_IP=PPMS_IP
+    def addPPMS(self,PPMS_IP='192.168.0.7',Dummy=False):
+        # Adds PPMS object and connects to the PPMS, reading current properties. 
+        # Call the object with BreakoutBoxConnections.PPMS.<function>
+        # See UtilsPPMS.py for function definitions.
+        # For code testing, you can use the Dummy flag to make a fake PPMS connection.
+        self.PPMS_IP=PPMS_IP
+        if not Dummy:
             self.PPMS = Dynacool(PPMS_IP)
-            print('PPMS connection established!')
-            print('Current Rotator Position:')
-            print(self.PPMS.getPosition())
-            print('Current PPMS Temperature:')
-            print(self.PPMS.getTemperature())
-            print('Current PPMS Field:')
-            print(self.PPMS.getField())
+            CurrentPosition=self.PPMS.getPosition()
+            CurrentTemperature=self.PPMS.getTemperature()
+            CurrentField=self.PPMS.getField()
+        else:
+            self.PPMS=Empty()
+            print('DUMMY PPMS')
+            CurrentPosition=-999
+            CurrentTemperature=-999
+            CurrentField=-999
+        print('PPMS connection established!')
+        print('Current Rotator Position: {}'.format(CurrentPosition))
+        print('Current PPMS Temperature: {}'.format(CurrentTemperature))
+        print('Current PPMS Field: {}'.format(CurrentField))
+        return self.PPMS
             
-    def addMatrixSwitch(self,Switch_IP='192.168.0.8'):
-            self.Switch_IP=Switch_IP
+    def addMatrixSwitch(self,Switch_IP='192.168.0.8', Dummy=False):
+        # Adds a matrix switch and gets the current status. Only supports 1 matrix switch for now.
+        # For code testing, you can use the Dummy flag to make a fake Switch connection.
+        self.Switch_IP=Switch_IP
+        if not Dummy:
             self.Switch=tn.telnet(Switch_IP)
             print('Matrix Switch State:')
             self.Switch.getStatus()
+        else:
+            self.Switch=Empty()
+            print('DUMMY Switch')
+            print('Matrix Switch State:')
+            print('NC')
+        return self.Switch
     
-    def addInstrument(self,DeviceType,GPIBNumber,DeviceName='Default',SwitchLabels={}):
+    def addInstrument(self,DeviceType,GPIBNumber,DeviceName='Default',SwitchLabels={},Dummy=False):
+        # Adds an instrument (Keithley). If the parent BreakoutBoxConnections object has an associated Switch,
+        # connections to it and labels can be defined (See Instrument class above for details).
+        # If using multiple Current Sources/ Voltmeters, you will want to manually name them, otherwise
+        # naming is not necessary, as each different device type will get a unique name.
         if len(SwitchLabels) != 0:
             if not hasattr(self,'Switch'):
                 raise ValueError('First add a switch with addMatrixSwitch() before defining switch labels for instruments')
-        self.InstrumentList.append(Instrument(DeviceType,GPIBNumber,DeviceName=DeviceName,SwitchLabels=SwitchLabels))
+        AddedInstrument=Instrument(DeviceType,GPIBNumber,DeviceName=DeviceName,SwitchLabels=SwitchLabels,Dummy=Dummy)
+        self.InstrumentList.append(AddedInstrument)
+        return AddedInstrument
         
     def addRotPuckConnection(self,PuckPinNumber,ConnectionName,SwitchLabel='none'):
+        # Defines a connection to a rotator puck pin. OPtionally label the switch port that this pin is connected to.
+        # (Switch port labelling requires a Switch object definition with addMatrixSwitch first)
         if SwitchLabel != 'none':
             if not hasattr(self,'Switch'):
                 raise ValueError('First add a switch with addMatrixSwitch() before defining switch labels for connections')
         self.RotPuckConnectionList.append(RotPuckConnection(PuckPinNumber,ConnectionName,SwitchLabel=SwitchLabel))
         
+    def getSwitchPortfromName(self,GivenConnectionName):
+        # Function to get the switch port given a connection name.
+        # Note that this is general, so it should work both for Rotator puck pin connections and instruments.
+        # Also returns the Instrument or Connection object. Checks for duplicates an raises error if not found.
+        FoundCount=0
+        for RotPuckConnection in self.RotPuckConnectionList:
+            if GivenConnectionName == RotPuckConnection.ConnectionName:
+                return RotPuckConnection.SwitchLabel, RotPuckConnection
+                FoundCount+=1
+        for Instrument in self.InstrumentList:
+            for i in range(len(Instrument.ConnectionNames)):
+                if GivenConnectionName == Instrument.ConnectionNames[i]:
+                    return Instrument.ConnectionSwitchLabels[i], Instrument
+                    FoundCount+=1
+        if FoundCount > 1:
+            raise NameError('Found multiple instances of {} in BreakoutBoxConnections!'.format(GivenConnectionName))
+        elif FoundCount == 0:
+            raise NameError('Could not find any intances of {} in BreakoutBoxConnections!'.format(GivenConnectionName))
+
+
+    def getInstrumentfromDeviceName(self,name):
+        # Function to get an instrument given its Device name.
+        FoundInstrument=False
+        for i in self.InstrumentList:
+            if name in i.DeviceName:
+                FoundInstrument = True
+                return i
+        if not FoundInstrument:
+            raise NameError('Could not find {} in InstrumentList'.format(name))
+
     def __repr__(self):
     # For printing the contents of this class
         OutPString=''
@@ -170,30 +232,38 @@ class BreakoutBoxConnections:
         OutPString += '\nPPMS IP: '
         if hasattr(self,'PPMS_IP'):
             OutPString += self.PPMS_IP
+            if isinstance(self.PPMS,Empty):
+                OutPString += '\nDUMMY PPMS'
         else:
             OutPString += 'PPMS not added'
         OutPString += '\nSwitch IP: '
         
         if hasattr(self,'Switch_IP'):
             OutPString += self.Switch_IP
+            if isinstance(self.Switch,Empty):
+                OutPString += '\nDUMMY Switch'
         else:
             OutPString += 'Switch not added'
         for i in self.InstrumentList:
             OutPString += '\n\n\t Device Name:'
             OutPString += i.DeviceName
+            if isinstance(i.InstrumentObject,Empty):
+                OutPString += '\nDUMMY INSTRUMENT'
             OutPString += '\n\t Device Type:'
             OutPString += str(i.DeviceType)
             OutPString += '\n\t Device GPIB Number:'
             OutPString += str(i.GPIBNumber)
             if len(i.ConnectionNames) > 0:
-                OutPString += '\n\t Connection Name, Connection Switch Label:'
+                OutPString += '\n\t {:20s}{:1s} {:20s}'.format('Connection Name',',','Connection Switch Label')
                 for j in range(len(i.ConnectionNames)):
-                    OutPString += '\n\t {},{}'.format(i.ConnectionNames[j],i.ConnectionSwitchLabels[j])
+                    OutPString += '\n\t {:20s}{:1s} {:20s}'.format(i.ConnectionNames[j],',',i.ConnectionSwitchLabels[j])
         
         OutPString += '\n\nlist of rotator puck connections:'
-        OutPString += '\n\t {}, {}, {}, {}'.format('Connection Name','Puck Pin Number','Breakout Box Number','Switch Label')
+        OutPString += '\n\t {:20s}{:1s} {:20s}{:1s} {:20s}{:1s} {:20s}'.format('Connection Name',',','Puck Pin Number',',',
+                                                                             'Breakout Box Number',',','Switch Label')
         for i in self.RotPuckConnectionList:
-            OutPString += '\n\t {},{},{},{}'.format(i.ConnectionName,i.PuckPinNumber,i.BreakoutBoxNumber,i.SwitchLabel)
+            OutPString += '\n\t {:20s}{:1s} {:20s}{:1s} {:20s}{:1s} {:20s}'.format(i.ConnectionName,',',str(i.PuckPinNumber),
+                                                                                 ',',str(i.BreakoutBoxNumber),',',i.SwitchLabel)
                 
         return OutPString
         
@@ -211,16 +281,16 @@ MEASUREMENT DEFINITIONS
 '''
 
 class MeasurementConnection:
-    # Class defining a measurement connection setup. Use 'Continuous' as the current source if you want the current to be
-    # continuous. If this is the case the CurrentAmplitude will be overwritten by the continuous current settings.
+    # Class defining a measurement connection setup. Use 'Continuous' as the current source if you want the DC measurement 
+    # current to be continuous. If this is the case the CurrentAmplitude will be overwritten by the continuous current settings.
     # SwitchConnections is a list of the form ['<ConnectionName1>,<PartenerName1>','<ConnectionName2>,<PartenerName2>']
-    # Which defines what connections to make in the switch box
+    # Which defines what connections to make in the switch box. This is optional, and requires a Switch to be added first.
     def __init__(self,MeasurementName,BreakoutBoxConnections,Voltmeter='Voltmeter',CurrentSource='Continuous',CurrentAmplitude=1e-4,SwitchConnections=[]):
         self.MeasurementName=MeasurementName
         self.BreakoutBoxConnections=BreakoutBoxConnections
         # Check if the specified current source  and voltmeter exists
-        getInstrumentfromName(BreakoutBoxConnections,CurrentSource)
-        getInstrumentfromName(BreakoutBoxConnections,Voltmeter)
+        self.BreakoutBoxConnections.getInstrumentfromDeviceName(CurrentSource)
+        self.BreakoutBoxConnections.getInstrumentfromDeviceName(Voltmeter)
         self.Voltmeter=Voltmeter
         self.CurrentSource=CurrentSource
         self.CurrentAmplitude=CurrentAmplitude
@@ -230,29 +300,15 @@ class MeasurementConnection:
             else:
             # Here try to match the given pair of switch port names to the switch port letter addresses.
                 self.SwitchPairs=[]
-                for pair in SwitchConnections:
-                    first,second=pair.split(',')
-                    foundpair=False
-                    for i in self.BreakoutBoxConnections.RotPuckConnectionList:
-                        if first in i.ConnectionName:
-                            firstmatch = i.SwitchLabel
-                            for j in self.BreakoutBoxConnections.InstrumentList:
-                                for k in range(len(j.ConnectionNames)):
-                                    if second in j.ConnectionNames[k]:
-                                        secondmatch=j.ConnectionSwitchLabels[k]
-                                        foundpair=True
-                        if second in i.ConnectionName:
-                            secondmatch = i.SwitchLabel
-                            for j in self.BreakoutBoxConnections.InstrumentList:
-                                for k in range(len(j.ConnectionNames)):
-                                    if first in j.ConnectionNames[k]:
-                                        firstmatch=j.ConnectionSwitchLabels[k]
-                                        foundpair=True
-                    if not foundpair:
-                        raise ValueError('Could not find referenced switch connection address! Check BreakoutBoxConnection label settings.')
-                    else:
-                        self.SwitchPairs.append('{},{}'.format(firstmatch,secondmatch))
-        self.SwitchConnections=SwitchConnections
+                for Pair in SwitchConnections:
+                    First,Second=Pair.split(',')
+                    FirstSwitchPort,FirstConnection=self.BreakoutBoxConnections.getSwitchPortfromName(First)
+                    SecondSwitchPort,SecondConnection=self.BreakoutBoxConnections.getSwitchPortfromName(Second)
+                    self.SwitchPairs.append('{},{}'.format(FirstSwitchPort,SecondSwitchPort))
+            self.SwitchConnections=SwitchConnections
+            # Make dicts between SwitchConnections and SwitchPairs
+            self.SwitchConnectiontoSwitchPairdict=dict(zip(self.SwitchConnections, self.SwitchPairs))
+            self.SwitchPairtoSwitchConnectiondict=dict(zip(self.SwitchPairs, self.SwitchConnections))
 
 class MeasurementSettings:
     # This class defines all settings related to running measurements.
@@ -274,11 +330,14 @@ class MeasurementSettings:
         self.MeasurementConnections.append(MeasurementConnection(MeasurementName,self.BreakoutBoxConnections,Voltmeter=Voltmeter,CurrentSource=CurrentSource,CurrentAmplitude=CurrentAmplitude,SwitchConnections=SwitchConnections))
         
     def ListMeasurementNames(self):
+        # Gets a list of the measurement names and stores it in self.MeasurementNames.
+        # Also returns a dict of MeasurementNames and corresponding MeasurementConnections
         self.MeasurementNames=[]
-        for Meas in self.MeasurementConnections:
-            self.MeasurementNames.append(Meas.MeasurementName)
-        return self.MeasurementNames
-        
+        for MeasurementConnection in self.MeasurementConnections:
+            self.MeasurementNames.append(MeasurementConnection.MeasurementName)
+        self.MeasurementNamedict=dict(zip(self.MeasurementNames, self.MeasurementConnections))
+        return self.MeasurementNamedict
+
     def setMeasurementParams(self,Angles,MagneticField,Temperature=300,WaitForSetpoints=True,InitialWaitTime=0,WaitAfterSwitch=0.3, SaveFolder='./data/PPMS_SMR/'):
         # Sets up general measurement parameters
         self.SaveFolder=SaveFolder
@@ -313,47 +372,64 @@ class MeasurementSettings:
         self.SourceComplianceVoltage=SourceComplianceVoltage
 
     def ApplyCurrent(self,CurrentSourceInstrument,CurrentAmplitude=1e-5, Verbose=False):
-        #Use this function to have the current source output current
+        # Use this function to have the current source output current
         CSIO=CurrentSourceInstrument.InstrumentObject
         if Verbose:
             print('Sourcing Current of {:.1e} from {}'.format(CurrentAmplitude,CurrentSourceInstrument.DeviceName))
-        CSIO.apply_current()  # Sets up to source current
-        CSIO.source_current_range = self.SourceCurrentRange
-        CSIO.compliance_voltage = self.SourceComplianceVoltage
-        CSIO.source_current = CurrentAmplitude
-        CSIO.enable_source()
+        if not isinstance(CurrentSourceInstrument.InstrumentObject,Empty):
+            # Check if the instrument is a dummy or not
+            CSIO.apply_current()  # Sets up to source current
+            CSIO.source_current_range = self.SourceCurrentRange
+            CSIO.compliance_voltage = self.SourceComplianceVoltage
+            CSIO.source_current = CurrentAmplitude
+            CSIO.enable_source()
         time.sleep(self.WaitAfterOn)
 
     def CurrentOff(self,CurrentSourceInstrument, Verbose=False):
         #Use this function to have the current source turn off its output
         if Verbose:
             print('Stopping output from {}'.format(CurrentSourceInstrument.DeviceName))
-        CurrentSourceInstrument.InstrumentObject.shutdown() 
+        if not isinstance(CurrentSourceInstrument.InstrumentObject,Empty):
+            CurrentSourceInstrument.InstrumentObject.shutdown() 
 
     def MeasureVoltage(self,Voltmeter='Voltmeter', CurrentSource='CurrentSource', CurrentAmplitude=1e-5, Verbose=False):
-        #This function measures the voltage at a given Voltmeter. 
+        #This function measures the voltage and standard deviation at a given Voltmeter. 
         #If the CCFlag is negative, it will first apply a current with the given Current Source
-        #First get the index of the Voltmeter and Current Source indicated.
-        VM=getInstrumentfromName(self.BreakoutBoxConnections,Voltmeter)
-        CS=getInstrumentfromName(self.BreakoutBoxConnections,CurrentSource)
+
+        #First get the Voltmeter and Current Source Instrument objects from the Device Names given.
+        VM=self.BreakoutBoxConnections.getInstrumentfromDeviceName(Voltmeter)
+        CS=self.BreakoutBoxConnections.getInstrumentfromDeviceName(CurrentSource)
+
+        # Turn on the current if constant current is not set
         if not self.CCFlag:
             self.ApplyCurrent(CS,CurrentAmplitude=CurrentAmplitude, Verbose=Verbose)
         v_up = []
         if Verbose:
             print('Measuring Positive Voltages with {}'.format(VM.DeviceName))
-        for i in range(self.NumberofVPoints):  # Measure for positive current
+
+        # Measure the positive current voltages
+        for i in range(self.NumberofVPoints):  
             time.sleep(self.TimePerPoint)
             if i < self.SkipPoints:
                 continue
-            v_up.append(float(VM.InstrumentObject.query("fetch?")))
+            if not isinstance(VM.InstrumentObject,Empty):
+            # Only fetch if the instrument object is real, otherwise add -999 V for dummy objects
+                v_up.append(float(VM.InstrumentObject.query("fetch?")))
+            else:
+                v_up.append(-999.0+i)
+        # Sort and drop the outliers
         v_up = sorted(v_up)
         v_up = v_up[self.DropOutliers: -self.DropOutliers]
         
         if self.BiPolar:
             if Verbose:
                 print('Sourcing Current of {:.1e} from {}'.format(-1 * CurrentAmplitude,CS.DeviceName))
-            CS.InstrumentObject.source_current = -1 * CurrentAmplitude
-            CS.InstrumentObject.enable_source()
+
+            # If BiPolar flag is true, now measure negative current voltages
+            if not isinstance(CS.InstrumentObject,Empty):
+                CS.InstrumentObject.source_current = -1 * CurrentAmplitude
+                CS.InstrumentObject.enable_source()
+
             v_dn = []
             if Verbose:
                 print('Measuring Negative Voltages with {}'.format(VM.DeviceName))
@@ -361,21 +437,55 @@ class MeasurementSettings:
                 time.sleep(self.TimePerPoint)
                 if i < self.SkipPoints:
                     continue
-                v_dn.append(float(VM.InstrumentObject.query("fetch?")))
+                if not isinstance(VM.InstrumentObject,Empty):
+                    v_dn.append(float(VM.InstrumentObject.query("fetch?")))
+                else:
+                    v_dn.append(999.0+i)
+
+            # Turn off the current        
             self.CurrentOff(CS, Verbose=Verbose)
+            # Drop outliers
             v_dn = sorted(v_dn)
             v_dn = v_dn[self.DropOutliers: -self.DropOutliers]
-            
+
+            # Take averages for Bipolar setting
             average_v = (np.array(v_up).mean() - np.array(v_dn).mean())/2
             std_v = (np.array(v_up).std() + np.array(v_dn).std())/2
             return average_v, std_v
         else:
+            # Turn off the current and do the same for unipolar
             self.CurrentOff(CurrentSource=CurrentSource, Verbose=Verbose)
             average_v = np.array(v_up).mean()
             std_v = np.array(v_up).std()
             return average_v, std_v
             
-    
+    def ConnectanddoVoltageMeasurement(self,ConnectionMeasurementName, Verbose=False):
+        # Measures the resistance of a given connection and stores it. If switch ports are provided,does switch connection first.
+        # First get the MeasurementConnection object from the name
+        self.ListMeasurementNames()
+        MeasurementConnection=self.MeasurementNamedict[ConnectionMeasurementName]
+        if Verbose:
+            print('Performing Measurement {}...'.format(ConnectionMeasurementName))
+        # If SwitchPairs is defined for the MeasurementConnection, then get first connect those 
+        if hasattr(MeasurementConnection,'SwitchPairs'):
+            for SwitchPair in MeasurementConnection.SwitchPairs:
+                # Check if the Switch is a dummy first
+                if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
+                    self.BreakoutBoxConnections.Switch.sendCommand('on {}'.format(SwitchPair))
+                if Verbose:
+                    print('Connected {} corresponding to {} on the SwitchBox.'.format(MeasurementConnection.SwitchPairtoSwitchConnectiondict[SwitchPair],SwitchPair))
+                time.sleep(self.WaitAfterSwitch)
+        # Measure the resistance
+        average_v,std_v=self.MeasureVoltage(Voltmeter=MeasurementConnection.Voltmeter,CurrentSource=MeasurementConnection.CurrentSource, 
+                                            CurrentAmplitude=MeasurementConnection.CurrentAmplitude, Verbose=Verbose)
+        # Resest the switch again if SwitchPairs is provided
+        if hasattr(MeasurementConnection,'SwitchPairs'):
+            if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
+                self.BreakoutBoxConnections.Switch.sendCommand('reset')
+            if Verbose:
+                print('Reset the switch')
+        return MeasurementConnection.CurrentAmplitude,average_v, std_v
+
     def RunMeasurement(self):
         #Use this function to run the measurement after you have set it up fully.
         #First set the Temperature 
@@ -453,9 +563,11 @@ class MeasurementSettings:
                 OutPString += '\n\t Current Source Name: {}'.format(i.CurrentSource)
                 OutPString += '\n\t Current Amplitude: {0:.2f}mA'.format(i.CurrentAmplitude*1000)
             if len(i.SwitchConnections) > 0:
-                OutPString += '\n\t Switch Connection Pairs\t Matrix Switch Addresses:'
+                OutPString += '\n\t {:30s}{:14s}:'.format('Switch Connection Pairs','Matrix Switch Addresses')
                 for j in range(len(i.SwitchConnections)):
-                    OutPString += '\n\t {}\t\t\t{}'.format(i.SwitchConnections[j],i.SwitchPairs[j])
+                    OutPString += '\n\t {:8s}{:5s}{:20s}{:3s}{:3s}{:10s}'.format(i.SwitchConnections[j].split(',')[0],',',
+                                                                                 i.SwitchConnections[j].split(',')[1],i.SwitchPairs[j].split(',')[0],
+                                                                                ',',i.SwitchPairs[j].split(',')[1])
         
         OutPString += '\n\nCurrent Source Settings:'
         OutPString += '\n\ncurrent source range: {0:.1f}(mA)'.format(self.SourceCurrentRange*1e3)
