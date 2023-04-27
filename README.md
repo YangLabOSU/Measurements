@@ -1,5 +1,5 @@
 # Measurements
-This repository contains code for running measurements in the OSU NSL PPMS. 
+This repository contains code for running magnetoresistance measurements in Yang lab at OSU. 
 Edited by Justin Michel (michel.169@osu.edu)
 
 # Installation
@@ -23,23 +23,6 @@ git clone https://github.com/justinm678/Measurements
 ```
 ## Lastly, install the required packages with:
 ```
-python37 -m pip install requirements.txt
+python37 -m pip install -r requirements.txt
 ```
-
-## Optionally, you can use a virtual environment to download the packages required here. 
-In the project directory, do 
-```
-python37 -m venv venv
-```
-Then activate it with:
-```
-venv\Scripts\activate
-```
-The prompt line should now show a ` (venv) ` at the beginning.
-You can then download the packages required as above.
-If you plan to use notebooks, you will also need to add a kernel for the virtual environment with:
-```
-python -m install ipykernel
-python37 -m ipykernel install --user --name=venvkernel
-```
-Then when you start a notebook, simply select this kernel to use the virtual enviornment.
+# Code use
