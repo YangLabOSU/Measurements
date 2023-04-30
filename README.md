@@ -25,6 +25,9 @@ git clone https://github.com/justinm678/Measurements
 ```
 python37 -m pip install requirements.txt
 ```
+For VISA communication with instruments, you will also need to install NI-VISA if it is not already installed. See steps for that here:
+
+https://pyvisa.readthedocs.io/en/latest/introduction/getting.html
 
 ## Optionally, you can use a virtual environment to download the packages required here. 
 In the project directory, do 
