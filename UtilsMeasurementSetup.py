@@ -349,6 +349,7 @@ class PulseConnection:
         self.BreakoutBoxConnections.getInstrumentfromDeviceName(Pulser)
         self.Pulser=Pulser
         self.PulseAmplitude=PulseAmplitude
+        self.PulseWidth=PulseWidth
         if len(SwitchConnections) > 0:
             if not hasattr(self.BreakoutBoxConnections,'Switch'):
                 raise NameError('You must define all connections in BreakoutBoxConnections BEFORE defining the pulse settings! (add a Switch object before you set switch connections)')
@@ -393,7 +394,20 @@ class MeasurementSettings:
             self.MeasurementNames.append(MeasurementConnection.MeasurementName)
         self.MeasurementNamedict=dict(zip(self.MeasurementNames, self.MeasurementConnections))
         return self.MeasurementNamedict
-        
+
+    def addPulseConnection(self,PulseName,Pulser='Pulser',PulseAmplitude=1e-4,PulseWidth=5e-6,SwitchConnections=[]):
+        # Adds a measurement connection setup to the list.
+        self.MeasurementConnections.append(PulseConnection(PulseName,self.BreakoutBoxConnections,Pulser=Pulser,PulseAmplitude=PulseAmplitude,PulseWidth=PulseWidth,SwitchConnections=SwitchConnections))
+    
+    def ListPulseNames(self):
+        # Gets a list of the pulse names and stores it in self.PulseNames.
+        # Also returns a dict of PulsesNames and corresponding PulseConnections
+        self.PulseNames=[]
+        for PulseConnection in self.PulseConnections:
+            self.PulseNames.append(PulseConnection.PulseName)
+        self.PulseNamedict=dict(zip(self.PulseNames, self.PulseConnections))
+        return self.PulseNamedict
+    
     def setContinuousCurrent(self,CurrentAmplitude,CurrentSource='CurrentSource'):
         # Defines a current source and amplitude to be run continuously throughout the measurements.
         if not self.BiPolar:
@@ -436,7 +450,7 @@ class MeasurementSettings:
         if Verbose:
             print('Stopping output from {}'.format(CurrentSourceInstrument.DeviceName))
         if not isinstance(CurrentSourceInstrument.InstrumentObject,Empty):
-            CurrentSourceInstrument.InstrumentObject.shutdown() 
+            CurrentSourceInstrument.InstrumentObject.shutdown()
 
     def MeasureVoltage(self,Voltmeter='Voltmeter', CurrentSource='CurrentSource', CurrentAmplitude=1e-5, Verbose=False):
         #This function measures the voltage and standard deviation at a given Voltmeter. 
@@ -533,12 +547,38 @@ class MeasurementSettings:
         
         # returns back the DC measurement current amplitude, average voltage, and standard deviation
         return MeasurementConnection.CurrentAmplitude,average_v, std_v
+            
+    def ConnectandPulse(self,PulseName, Verbose=False):
+        # Sends the pulse defined in the given PulseName. If switch ports are provided,does switch connection first.
+        # First get the PulseConnection object from the name
+        self.ListPulseNames()
+        PulseConnection=self.PulseNamedict[PulseName]
+        # And get the Pulser object from the pulser name
+        PS=self.BreakoutBoxConnections.getInstrumentfromDeviceName(PulseConnection.Pulser)
 
-    def addPulseConnection(self,PulseName,Pulser='Pulser',PulseAmplitude=1e-4,PulseWidth=5e-6,SwitchConnections=[]):
-        # Adds a measurement connection setup to the list.
-        self.MeasurementConnections.append(PulseConnection(PulseName,self.BreakoutBoxConnections,Pulser=Pulser,PulseAmplitude=PulseAmplitude,PulseWidth=PulseWidth,SwitchConnections=SwitchConnections))
+        if Verbose:
+            print('Performing Pulse {}...'.format(PulseName))
+        # If SwitchPairs is defined for the PulseConnection, then get first connect those 
+        if hasattr(PulseConnection,'SwitchPairs'):
+            for SwitchPair in PulseConnection.SwitchPairs:
+                # Check if the Switch is a dummy first
+                if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
+                    self.BreakoutBoxConnections.Switch.sendCommand('on {}'.format(SwitchPair))
+                if Verbose:
+                    print('Connected {} corresponding to {} on the SwitchBox.'.format(PulseConnection.SwitchPairtoSwitchConnectiondict[SwitchPair],SwitchPair))
+                time.sleep(self.WaitAfterSwitch)
+        # Send the pulse
+        if not isinstance(PulseConnection.InstrumentObject,Empty):
+            PS.InstrumentObject.pulseOut(amp=PulseConnection.PulseAmplitude, duration=PulseConnection.PulseWidth, wait_after_arm=self.WaitTimeAfterPulseArm)
+        if Verbose:
+            print('Sending {:.1f} mA, {:.1e} s pulse with {}. Waiting {}s after arm.'.format(PulseConnection.PulseAmplitude,PulseConnection.PulseWidth,self.WaitTimeAfterPulseArm))
+        # Resest the switch again if SwitchPairs is provided
+        if hasattr(PulseConnection,'SwitchPairs'):
+            if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
+                self.BreakoutBoxConnections.Switch.sendCommand('reset')
+            if Verbose:
+                print('Reset the switch')
         
-
     def DetermineMeasurementType(self, Verbose=False):
         # Measurement type (RvsT, RvsH, or RvsAngle)is determined based on the length of the given properties
         # If multiple values are given for more than one parameter, raise an error. Angle of -999 will not send any rotator commands,
