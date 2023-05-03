@@ -368,17 +368,37 @@ class PulseConnection:
 
 class MeasurementSettings:
     # This class defines all settings related to running measurements.
-    def __init__(self,BreakoutBoxConnections,MeasurementID='',SampleID='',MeasurementNote=''):
-        self.MeasurementID=MeasurementID
+    def __init__(self,BreakoutBoxConnections,SampleID='Sample'):
         self.SampleID=SampleID
-        self.MeasurementNote=MeasurementNote
         self.BreakoutBoxConnections=BreakoutBoxConnections
         self.MeasurementConnections=[]
         self.PulseConnections=[]
         self.CCFlag=False
+        self.FileSettings()
         self.setVoltageMeasurementOptions()
         self.setCurrentSourceOptions()
     
+    def FileSettings(self,SampleID='Sample',MeasurementID='Measurement',MeasurementNote='', SaveFolder='auto'):
+        # Use this to update the file annotation settings. You can also update the sample ID here
+        # This way you don't need to make a new MeasurementSettings object to do so
+        # When SaveFolder is set to 'auto' (the default), it will be determined by the detected measurement type.
+        self.SampleID=SampleID
+        self.MeasurementNote=MeasurementNote
+        self.MeasurementID=MeasurementID
+        if SaveFolder == 'auto':
+            try:
+                self.DetermineMeasurementType()
+                if 'RvsT' in self.MeasurementType:
+                    self.SaveFolder='./data/PPMS_RvsT/'
+                elif 'RvsH' in self.MeasurementType:
+                    self.SaveFolder='./data/PPMS_RvsH/'
+                elif 'Angle' in self.MeasurementType:
+                    self.SaveFolder='./data/PPMS_SMR/'
+            except:
+                self.SaveFolder='./data/'
+        else:
+            self.SaveFolder=SaveFolder
+        
     def addMeasurementConnection(self,MeasurementName,Voltmeter='Voltmeter',CurrentSource='CurrentSource',CurrentAmplitude=1e-4,SwitchConnections=[]):
         # Adds a measurement connection setup to the list.if CurrentSource == 'Continuous':
         if CurrentSource=='Continuous':
@@ -397,7 +417,7 @@ class MeasurementSettings:
 
     def addPulseConnection(self,PulseName,Pulser='Pulser',PulseAmplitude=1e-4,PulseWidth=5e-6,SwitchConnections=[]):
         # Adds a measurement connection setup to the list.
-        self.MeasurementConnections.append(PulseConnection(PulseName,self.BreakoutBoxConnections,Pulser=Pulser,PulseAmplitude=PulseAmplitude,PulseWidth=PulseWidth,SwitchConnections=SwitchConnections))
+        self.PulseConnections.append(PulseConnection(PulseName,self.BreakoutBoxConnections,Pulser=Pulser,PulseAmplitude=PulseAmplitude,PulseWidth=PulseWidth,SwitchConnections=SwitchConnections))
     
     def ListPulseNames(self):
         # Gets a list of the pulse names and stores it in self.PulseNames.
@@ -583,6 +603,8 @@ class MeasurementSettings:
         # Measurement type (RvsT, RvsH, or RvsAngle)is determined based on the length of the given properties
         # If multiple values are given for more than one parameter, raise an error. Angle of -999 will not send any rotator commands,
         # so this can be used for non-rotating pucks also.
+        if not hasattr(self,'InitialWaitTime'):
+            raise NameError('Run setMeasurementParams before attempting to start a measurement!')
         if type(self.Angle) == list:
             if type(self.MagneticField) != list and type(self.Temperature) != list:
                 self.MeasurementType='RvsAngle'
@@ -606,23 +628,25 @@ class MeasurementSettings:
                 else:
                     self.MeasurementType='RvsT_SpecificAngle'
         else:
-            raise ValueError('Could not determine measurement type. Set multiple values for only one parameter at a time (except for ' +
-                                'remnant angular measurements). Use for loops to iterate through parameters of this function.')
+            if len(self.PulseConnections) == 0:
+                raise ValueError('Could not determine measurement type. Set multiple values for only one parameter at a time (except for ' +
+                                    'remnant angular measurements). Use for loops to iterate through parameters of this function.')
+            else:
+                self.MeasurementType='MultiChannel_Pulse'
         if Verbose:
             print('Measurement type is set to {}'.format(self.MeasurementType))
         return self.MeasurementType
     
 
-    def setMeasurementParams(self,Angle=-999,MagneticField=100,Temperature=300,WaitForSetpoints=True,InitialWaitTime=0,WaitAfterSwitch=0.3, SaveFolder='./data/PPMS_SMR/'):
+    def setMeasurementParams(self,Angle=-999,MagneticField=100,Temperature=300,WaitForSetpoints=True,InitialWaitTime=0,WaitAfterSwitch=0.3):
         # Sets up general measurement parameters, and gets the measurement type from them
         self.Angle=Angle
         self.MagneticField=MagneticField
         self.Temperature=Temperature
-        self.DetermineMeasurementType()
-        self.SaveFolder=SaveFolder
         self.WaitForSetpoints=WaitForSetpoints
         self.InitialWaitTime=InitialWaitTime
         self.WaitAfterSwitch=WaitAfterSwitch
+        self.DetermineMeasurementType()
 
     def getPPMSCurrentParams(self):
         # Gets the PPMS current attributes and stores them and returns them
@@ -656,7 +680,7 @@ class MeasurementSettings:
                 self.DataColumnNames.append(MeasurementName+'_DC_Current(A)')
                 self.DataColumnNames.append(MeasurementName+'_Average_V')
                 self.DataColumnNames.append(MeasurementName+'_Std_V')
-            f.write("Angle(deg),Temp(K),Field(Oe),{}\n".format(','.join(self.DataColumnNames)))
+            f.write("Angle(deg),Temp(K),Field(Oe),PulseChannel,{}\n".format(','.join(self.DataColumnNames)))
 
         return self.FileName
     
@@ -669,7 +693,7 @@ class MeasurementSettings:
             PlotSMR(FileName=self.FileName)
             plt.show()
     
-    def doMeasurementsandRecordData(self, PlotData=True, Verbose=False):
+    def doMeasurementsandRecordData(self, PlotData=True, Verbose=False, PulseChannel=''):
         # Does the previously set measurements and records the data to the datafile
         self.getPPMSCurrentParams()
         vlist=[]
@@ -679,9 +703,26 @@ class MeasurementSettings:
             vlist.append(dc_current_amplitude)
             vlist.append(average_v)
             vlist.append(std_v)
-        self.RecordDataLine('{},{},{},{}\n'.format(self.PPMSCurrentAngle,self.PPMSCurrentTemperature,self.PPMSCurrentMagneticField,
-                                                    ','.join(str(x) for x in vlist)),PlotData=PlotData)
+        self.RecordDataLine('{},{},{},{},{}\n'.format(self.PPMSCurrentAngle,self.PPMSCurrentTemperature,self.PPMSCurrentMagneticField,
+                                                    PulseChannel,','.join(str(x) for x in vlist)),PlotData=PlotData)
             
+    def autoRunMeasurement(self):
+        self.DetermineMeasurementType()
+        if 'RvsT' in self.MeasurementType:
+            print('Detected RvsT measurement. Running...')
+            self.RunRvsTMeasurement()
+        elif 'RvsH' in self.MeasurementType:
+            print('Detected RvsH measurement. Running...')
+            self.RunRvsHMeasurement()
+        elif 'Angle' in self.MeasurementType:
+            print('Detected RvsAngle measurement. Running...')
+            self.RunRvsAngleMeasurement()
+        elif 'MultiChannel_Pulse' in self.MeasurementType:
+            print('Detected Multi-Channel switch measurement. Running...')
+            pass
+        else:
+            raise NameError('Cannot auto run measurement. Could not determine type.')
+
     def RunRvsTMeasurement(self, RvsTsetAngle=-999, RvsTsetMagneticField=-999, RvsTsetTemperatures=-999, Verbose=False):
         # Runs an R vs T measurement. Measurement parameters can either be set previously with the setMeasurementParams function, or 
         # when calling this function. If they are given in this function, they will overwrite previously given parameters.
@@ -933,6 +974,21 @@ class MeasurementSettings:
         OutPString += '\nnumber of Voltage measurement points to skip at ends: {}'.format(self.SkipPoints)
         OutPString += '\nnumber of Voltage measurement outlier points to drop at each end: {}'.format(self.DropOutliers)
         
+        OutPString += '\n\nPulse List:'
+        for i in self.PulseConnections:
+            OutPString += '\n\n\t Pulse Name:'
+            OutPString += i.PulseName
+            OutPString += '\n\t Pulser:'
+            OutPString += str(i.Pulser)
+            OutPString += '\n\t Pulse Current : {0:.4e}A'.format(i.PulseAmplitude)
+            OutPString += '\n\t Pulse Width : {:.4e}s'.format(i.PulseWidth)
+            if len(i.SwitchConnections) > 0:
+                OutPString += '\n\t {:30s}{:14s}:'.format('Switch Connection Pairs','Matrix Switch Addresses')
+                for j in range(len(i.SwitchConnections)):
+                    OutPString += '\n\t {:8s}{:5s}{:20s}{:3s}{:3s}{:10s}'.format(i.SwitchConnections[j].split(',')[0],',',
+                                                                                 i.SwitchConnections[j].split(',')[1],i.SwitchPairs[j].split(',')[0],
+                                                                                ',',i.SwitchPairs[j].split(',')[1])
+                    
         OutPString += '\n\nTiming Settings:'
         OutPString += '\n\nwait for initial setpoints?: {}'.format(self.WaitForSetpoints)
         OutPString += '\nwait time at measurement start: {}'.format(self.InitialWaitTime)
@@ -973,6 +1029,12 @@ def PlotSMR(FileName):
                 hlength = num-1+ncorr
             if 'Measurement Name:' in line:
                 measnames.append(line.split(':')[1].split('\n')[0])
+            if 'RvsAngle' in line:
+                MeasType='RvsAngle'
+            elif 'RvsH' in line:
+                MeasType='RvsH'
+            elif 'RvsT' in line:
+                MeasType='RvsT'
     
     df = pd.read_csv(FileName, header=hlength)
     #print(df)
@@ -983,11 +1045,17 @@ def PlotSMR(FileName):
         fig,ax=plt.subplots()
 
         plt.suptitle(FileName.split('/')[-1][:-4]+'_'+measname)
-        ax.plot(df['Angle(deg)'],df[measname+'_Average_V']/df[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname)
+        if MeasType == 'RvsAngle':
+            ax.plot(df['Angle(deg)'],df[measname+'_Average_V']/df[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname)
+            ax.set_xlabel('Angle(deg)')
+        elif MeasType == 'RvsH':
+            ax.plot(df['Field(Oe)'],df[measname+'_Average_V']/df[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname)
+            ax.set_xlabel('Field(Oe)')
+        if MeasType == 'RvsT':
+            ax.plot(df['Temp(K)'],df[measname+'_Average_V']/df[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname)
+            ax.set_xlabel('Temp(K)')
 
-        ax.set_xlabel('Angle(deg)')
         ax.set_ylabel('$\Omega$')
-
         ax.legend()
         fig.savefig(FileName[:-4]+'_'+measname+'.png', dpi=600)
         
