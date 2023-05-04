@@ -650,7 +650,7 @@ class MeasurementSettings:
 
     def getPPMSCurrentParams(self):
         # Gets the PPMS current attributes and stores them and returns them
-        if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
+        if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
             self.PPMSCurrentAngle=self.BreakoutBoxConnections.PPMS.getPosition()
             self.PPMSCurrentTemperature=self.BreakoutBoxConnections.PPMS.getTemperature()
             self.PPMSCurrentMagneticField=self.BreakoutBoxConnections.PPMS.getField()
@@ -783,7 +783,7 @@ class MeasurementSettings:
             if Verbose:
                 print('ramping Temperature to {:.1f} K...'.format(temp))
             if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
-                self.BreakoutBoxConnections.PPMS.setField(temp)
+                self.BreakoutBoxConnections.PPMS.setTemperature(temp)
                 self.BreakoutBoxConnections.PPMS.waitForTemperature()
             self.doMeasurementsandRecordData(Verbose=Verbose)
 
