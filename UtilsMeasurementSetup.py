@@ -5,6 +5,7 @@ import io
 import time
 import os
 import numpy as np
+import math
 import pandas as pd
 import matplotlib.pyplot as plt
 from IPython import display
@@ -45,6 +46,10 @@ def print_to_string(*args, **kwargs):
     contents = output.getvalue()
     output.close()
     return contents
+
+
+def custom_round(x, base=5):
+    return int(base * round(float(x)/base))
     
 '''
 **************************************************************************************************
@@ -95,7 +100,7 @@ class Instrument:
             print('Dummy 2182')
         print('Added Keithley 2182 with name {} and GPIB number {}'.format(self.DeviceName,GPIBNumber))
         if len(SwitchLabels) > 0:
-            if len(SwitchLabels) == 2 or 4:
+            if len(SwitchLabels) <= 4:
             # If Switchlabels are given of the form
             # {'<Positive connection name>:<Positive connection switch terminal>',
             # <Negative connection name>:<Negative connection switch terminal>}
@@ -103,7 +108,7 @@ class Instrument:
                 self.ConnectionNames=list(SwitchLabels)
                 self.ConnectionSwitchLabels=list(SwitchLabels.values())
             else:
-                raise ValueError('2182 supports only 2 or 4 connections!')
+                raise ValueError('2182 supports max 4 connections!')
         else:
             self.ConnectionNames=['none defined']
             self.ConnectionSwitchLabels=['none defined']
@@ -122,7 +127,7 @@ class Instrument:
             print('Dummy 2400')
         print('Added Keithley 2400 with name {} and GPIB number {}'.format(self.DeviceName,GPIBNumber))
         if len(SwitchLabels) > 0:
-            if len(SwitchLabels) == 2:
+            if len(SwitchLabels) <= 2:
             # If Switchlabels are given of the form
             # {'<Positive connection name>:<Positive connection switch terminal>',
             # <Negative connection name>:<Negative connection switch terminal>}
@@ -130,7 +135,7 @@ class Instrument:
                 self.ConnectionNames=list(SwitchLabels)
                 self.ConnectionSwitchLabels=list(SwitchLabels.values())
             else:
-                raise ValueError('2400 supports only 2 connections!')
+                raise ValueError('2400 supports max 2 connections!')
         else:
             self.ConnectionNames=['none defined']
             self.ConnectionSwitchLabels=['none defined']
@@ -142,7 +147,7 @@ class Instrument:
         else:
             self.DeviceName = DeviceName
         if not self.Dummy:
-            self.InstrumentObject=K6221("GPIB::{}".format(GPIBNumber))
+            self.InstrumentObject=K6221(GPIBNumber)
         else:
             self.InstrumentObject=Empty()
             print('Dummy 6221')
@@ -377,6 +382,7 @@ class MeasurementSettings:
         self.FileSettings()
         self.setVoltageMeasurementOptions()
         self.setCurrentSourceOptions()
+        self.setPulseOptions()
     
     def FileSettings(self,SampleID='Sample',MeasurementID='Measurement',MeasurementNote='', SaveFolder='auto'):
         # Use this to update the file annotation settings. You can also update the sample ID here
@@ -450,6 +456,11 @@ class MeasurementSettings:
         #Use this function to set custom current source options. Otherwise the above defaults will be set.
         self.SourceCurrentRange=SourceCurrentRange
         self.SourceComplianceVoltage=SourceComplianceVoltage
+
+    def setPulseOptions(self,WaitTimeAfterPulseArm=2,WaitAfterPulse=0.3):
+        #Use this function to set custom current source options. Otherwise the above defaults will be set.
+        self.WaitTimeAfterPulseArm=WaitTimeAfterPulseArm
+        self.WaitAfterPulse=WaitAfterPulse
 
     def ApplyCurrent(self,CurrentSourceInstrument,CurrentAmplitude=1e-5, Verbose=False):
         # Use this function to have the current source output current
@@ -588,16 +599,24 @@ class MeasurementSettings:
                     print('Connected {} corresponding to {} on the SwitchBox.'.format(PulseConnection.SwitchPairtoSwitchConnectiondict[SwitchPair],SwitchPair))
                 time.sleep(self.WaitAfterSwitch)
         # Send the pulse
-        if not isinstance(PulseConnection.InstrumentObject,Empty):
+        if not isinstance(PS.InstrumentObject,Empty):
             PS.InstrumentObject.pulseOut(amp=PulseConnection.PulseAmplitude, duration=PulseConnection.PulseWidth, wait_after_arm=self.WaitTimeAfterPulseArm)
         if Verbose:
-            print('Sending {:.1f} mA, {:.1e} s pulse with {}. Waiting {}s after arm.'.format(PulseConnection.PulseAmplitude,PulseConnection.PulseWidth,self.WaitTimeAfterPulseArm))
+            print('Sending {:.2f} mA pulse'.format(PulseConnection.PulseAmplitude*1e3))
+        time.sleep(self.WaitAfterPulse)
         # Resest the switch again if SwitchPairs is provided
         if hasattr(PulseConnection,'SwitchPairs'):
             if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
                 self.BreakoutBoxConnections.Switch.sendCommand('reset')
             if Verbose:
                 print('Reset the switch')
+
+    def SendAllPulses(self, Verbose=False):
+        # Does the previously set measurements and records the data to the datafile
+        self.getPPMSCurrentParams()
+        self.ListPulseNames()
+        for PulseName in self.PulseNames:
+            self.ConnectandPulse(PulseName, Verbose=Verbose)
         
     def DetermineMeasurementType(self, Verbose=False):
         # Measurement type (RvsT, RvsH, or RvsAngle)is determined based on the length of the given properties
@@ -934,6 +953,94 @@ class MeasurementSettings:
                         time.sleep(2)
 
                 self.doMeasurementsandRecordData(Verbose=Verbose)
+
+
+    def RunRvsAngleMeasurementPulse(self, Angles=-999, RvsAnglesetMagneticField=-999, RvsAnglesetTemperature=-999, Verbose=False):
+        # Runs an R vs Angle measurement with a pulse at each angle. Measurement parameters can either be set previously with the setMeasurementParams function, or 
+        # when calling this function. If they are given in this function, they will overwrite previously given parameters.
+
+        if not hasattr(self,'MeasurementType'):
+            # If parameters have not been set yet
+            if RvsAnglesetMagneticField==-999 or RvsAnglesetTemperature==-999 or Angles == -999:
+                # and they are not all given in this function, raise error
+                raise ValueError('Set all the measurement parameters first. Either in this function call or with setMeasurementParams')
+            else:
+                # If they have not been set, and they are given in this function, get defaults + the ones given by this function.
+                self.setMeasurementParams(Angle=Angles,MagneticField=RvsAnglesetMagneticField, Temperature=RvsAnglesetTemperature)
+        else:
+            # If there are previously set parameters
+            if Angles != -999: 
+                # update if they are given here
+                self.Angle=Angles
+            if RvsAnglesetMagneticField != -999: 
+                self.MagneticField=RvsAnglesetMagneticField
+            if RvsAnglesetTemperature != -999: 
+                self.Temperature=RvsAnglesetTemperature
+            # and update the measurement type
+            self.MeasurementType='RvsAngle_Remnant_Pulse'
+    
+            self.SaveFolder='./data/PPMS_switch/'
+        
+        #Reset Switch conenctions, if any
+        if hasattr(self.BreakoutBoxConnections,'Switch'):
+            if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
+                self.BreakoutBoxConnections.Switch.sendCommand('reset')
+            else:
+                print('Dummy Switch reset')
+            
+        if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+            # set the temperature. Only one temperature is allowed.
+            self.BreakoutBoxConnections.PPMS.setTemperature(self.Temperature)
+        # Go to the saturation field (or only field) also
+        if 'RvsAngle_Remnant' in self.MeasurementType:
+            if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+                self.BreakoutBoxConnections.PPMS.setField(self.MagneticField[0])
+        elif self.MeasurementType == 'RvsAngle':
+            if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+                self.BreakoutBoxConnections.PPMS.setField(self.MagneticField)
+        else:
+            raise ValueError('Measurement type is not RvsAngle or RvsAngle_Remnant!')
+        if self.WaitForSetpoints:
+            #Wait for them to be reached
+            if not isinstance(self.BreakoutBoxConnections.PPMS,Empty): 
+                self.BreakoutBoxConnections.PPMS.waitForTemperature()
+                self.BreakoutBoxConnections.PPMS.waitForField()
+            else:
+                print('Dummy wait 2s...')
+                time.sleep(2)
+            if Verbose:
+                print('Waiting for setpoints...')
+        time.sleep(self.InitialWaitTime)
+
+        # Start recording the datafile
+        self.StartDataRecording()
+        
+        for angle in self.Angle:
+            if Verbose:
+                print('rotating to angle {:.1f} degrees...'.format(angle))
+            if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+                self.BreakoutBoxConnections.PPMS.setPosition(angle)
+                self.BreakoutBoxConnections.PPMS.waitForPosition()
+            
+            if type(self.MagneticField) != list:
+                MagneticFieldList=[self.MagneticField]
+            else:
+                MagneticFieldList=self.MagneticField
+
+            for MagneticField in MagneticFieldList:
+                # Set the field before each measurement. If the scan is a remnant scan, then wait for it to be reached.
+                if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+                    self.BreakoutBoxConnections.PPMS.setField(MagneticField)
+                    if 'RvsAngle_Remnant' in self.MeasurementType:
+                        self.BreakoutBoxConnections.PPMS.waitForField()
+                else:
+                    if self.MeasurementType=='RvsAngle_Remnant':
+                        print('Set Dummy Field to {} Oe and waiting for it'.format(MagneticField))
+                        time.sleep(2)
+
+                self.doMeasurementsandRecordData(Verbose=Verbose)
+            self.SendAllPulses(Verbose=Verbose)
+            self.doMeasurementsandRecordData(Verbose=Verbose,PulseChannel=' '.join(self.PulseNames))
         
         
     def __repr__(self):
@@ -955,7 +1062,7 @@ class MeasurementSettings:
             if not self.CCFlag:
                 OutPString += '\n\t Current Source Name: {}'.format(i.CurrentSource)
                 OutPString += '\n\t Current Amplitude: {0:.2f}mA'.format(i.CurrentAmplitude*1000)
-            if len(i.SwitchConnections) > 0:
+            if hasattr(i,'SwitchConnections'):
                 OutPString += '\n\t {:30s}{:14s}:'.format('Switch Connection Pairs','Matrix Switch Addresses')
                 for j in range(len(i.SwitchConnections)):
                     OutPString += '\n\t {:8s}{:5s}{:20s}{:3s}{:3s}{:10s}'.format(i.SwitchConnections[j].split(',')[0],',',
@@ -993,6 +1100,8 @@ class MeasurementSettings:
         OutPString += '\n\nwait for initial setpoints?: {}'.format(self.WaitForSetpoints)
         OutPString += '\nwait time at measurement start: {}'.format(self.InitialWaitTime)
         OutPString += '\nwait time after switching connections: {}'.format(self.WaitAfterSwitch)
+        OutPString += '\nwait time after pusle arm: {}'.format(self.WaitTimeAfterPulseArm)
+        OutPString += '\nwait time after pusle: {}'.format(self.WaitAfterPulse)
         
         OutPString += '\n\nOverall Measurement Settings:'
         OutPString += '\n\nmagnetic field setpoint: {}(Oe)'.format(self.MagneticField)
@@ -1040,18 +1149,23 @@ def PlotSMR(FileName):
     #print(df)
     
     for measname in measnames:
-        cols = [label for label in df.columns if any(x in label for x in [measname+'Average_V', 'Angle', 'Temp','Field'])]
-        sdf=df[cols]
+        # first round the field, temp, and position so that they can be grouped
+        df['RoundedTemp']=df['Temp(K)'].round(0).astype(int)
+        df['RoundedAngle']=df['Angle(deg)'].round(0).astype(int)
+        df['RoundedField']=df['Field(Oe)'].apply(lambda x: custom_round(x, base=5)).astype(int)
+        df['FieldName']=~pd.isnull(df['PulseChannel'])
+        df['FieldName'] = np.where(df['FieldName'], 'Pulsed', df['RoundedField'])
         fig,ax=plt.subplots()
 
         plt.suptitle(FileName.split('/')[-1][:-4]+'_'+measname)
         if MeasType == 'RvsAngle':
-            ax.plot(df['Angle(deg)'],df[measname+'_Average_V']/df[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname)
+            for key, d in df.groupby('FieldName'):
+                ax.plot(d['Angle(deg)'],d[measname+'_Average_V']/d[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname+'_{}'.format(key))
             ax.set_xlabel('Angle(deg)')
         elif MeasType == 'RvsH':
             ax.plot(df['Field(Oe)'],df[measname+'_Average_V']/df[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname)
             ax.set_xlabel('Field(Oe)')
-        if MeasType == 'RvsT':
+        elif MeasType == 'RvsT':
             ax.plot(df['Temp(K)'],df[measname+'_Average_V']/df[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname)
             ax.set_xlabel('Temp(K)')
 
