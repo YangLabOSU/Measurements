@@ -1,0 +1,46 @@
+#print(C.getSettingsString())
+for T in [300]:
+    for Pulse_Current in [15e-3,20e-3]:
+        for F in [1000,500]:
+            Angles=CreateArrayWithSteps([0,360,0],[10,-10])
+            PD_Current=1e-3
+            MS=MeasurementSettings(C)
+
+            MS.setVoltageMeasurementOptions(PulseDelta=True, PDCount=50, PDInterval=10, PDWidth=5e-3, PDSourceDelay=1e-3)
+
+
+            MS.addMeasurementConnection('10W20L',CurrentAmplitude=PD_Current,SwitchConnections=['V+,10W20L+'], VoltRange='1')
+            MS.addMeasurementConnection('10W10L',CurrentAmplitude=PD_Current,SwitchConnections=['V+,10W10L+'], VoltRange='1')
+            MS.addMeasurementConnection('10W5L',CurrentAmplitude=PD_Current,SwitchConnections=['V+,10W5L+'], VoltRange='1')
+
+            MS.addPulseConnection('10W20L',PulseAmplitude=Pulse_Current,SwitchConnections=['V+,10W20L+'])
+            MS.addPulseConnection('10W10L',PulseAmplitude=Pulse_Current,SwitchConnections=['V+,10W10L+'])
+            MS.addPulseConnection('10W5L',PulseAmplitude=Pulse_Current,SwitchConnections=['V+,10W5L+'])
+            F=1000
+            # F=10000
+
+            note='''Try switching between positive and negative pulses with an applied field.
+            Check for hysteresis with 2nm Pt sample.'''
+
+            MS.setMeasurementParams(Angle=Angles,MagneticField=F,Temperature=T,InitialWaitTime=0)
+
+            if isinstance(F,list):
+                field_string=F[0]/10000
+                admr_type='rem'
+            else:
+                field_string=F/10000
+                admr_type='sat'
+            
+            admr_type='{:.2f}mA_pos_neg_pulse_FieldON'.format(Pulse_Current*1e3)
+            MS.FileSettings(MeasurementID='XE522-2_{:.1f}T_{:.1f}K_{}'.format(field_string,T,admr_type), SampleID='XE522-2_SW_Pt(1p8)_Fe2O3(30)_Al2O3(0001)G3')
+            # PulseAmplitudes=CreateArrayWithSteps([0,50e-3],[1e-3])
+            # MS.PulseAmplitudeSeriesTest(PulseAmplitudes,'5W10L',10000,105)
+            # MS.autoRunMeasurement()
+            MS.RunRvsAngleMeasurementPulseField()
+            #MS.ConnectandPulse('ParPulse')
+            # time.sleep(10)
+# print(MS.ConnectanddoVoltageMeasurement('10W20L', Verbose=True))
+# print(MS.ConnectanddoVoltageMeasurement('10W10L', Verbose=True))
+# print(MS.ConnectanddoVoltageMeasurement('10W5L', Verbose=True))
+    # PulseAmplitudes=CreateArrayWithSteps([0,52e-3],[2e-3])
+    # MS.PulseAmplitudeSeriesTest(PulseAmplitudes,'10W5L',10000,45,Verbose=False)

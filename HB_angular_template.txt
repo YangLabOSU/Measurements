@@ -1,0 +1,45 @@
+from UtilsMeasurementSetup import *
+from UtilsBasic import *
+import time
+
+C=BreakoutBoxConnections()
+S=C.addMatrixSwitch()
+C.addPPMS()
+C.addRotPuckConnection(7,'R+',SwitchLabel='a') 
+C.addRotPuckConnection(8,'R-') # 2182-
+C.addRotPuckConnection(9,'I+')
+C.addRotPuckConnection(10,'I-')
+C.addRotPuckConnection(11,'L+') # NC
+C.addRotPuckConnection(12,'L-',SwitchLabel='b')
+PL=C.addInstrument(6221,14,SwitchLabels={'V+':'k'})
+#VS=C.addInstrument(2400,15, DeviceName='VoltageSupply')
+print(C.getSettingsString)
+
+
+#print(C.getSettingsString())
+for T in [300]:
+    Angles=CreateArrayWithSteps([0,360],[5])
+    PD_Current=1e-3
+    MS=MeasurementSettings(C)
+
+    MS.setVoltageMeasurementOptions(PulseDelta=True, PDCount=50, PDInterval=10, PDWidth=5e-3, PDSourceDelay=1e-3)
+
+
+    MS.addMeasurementConnection('Rxx',CurrentAmplitude=PD_Current,SwitchConnections=['V+,R+'], VoltRange='10')
+    MS.addMeasurementConnection('Rxy',CurrentAmplitude=PD_Current,SwitchConnections=['V+,L-'], VoltRange='0.1')
+
+    F=[6000,0]
+
+    note='''Check 50nm film to see in-plane anisotropy.
+    Pattern is a 14um x100um Hall bar, with current flowing from pad 7 to 8 on the puck. (90 degree
+    offset)'''
+    MS.setMeasurementParams(Angle=Angles,MagneticField=F,Temperature=T,InitialWaitTime=0)
+
+    MS.FileSettings(MeasurementID='XE470_1_HB90_{:.1f}T_{:.1f}K_rem'.format(F[0],T), SampleID='XE470_1_Pt(1p7)_Fe2O3(30)_Al2O3(0001)WafF2')
+    # PulseAmplitudes=CreateArrayWithSteps([0,50e-3],[1e-3])
+    # MS.PulseAmplitudeSeriesTest(PulseAmplitudes,'5W10L',10000,105)
+    MS.autoRunMeasurement()
+    #MS.ConnectandPulse('ParPulse')
+    # time.sleep(10)
+    # MS.ConnectanddoVoltageMeasurement('Rxx', Verbose=True)
+    # MS.ConnectanddoVoltageMeasurement('Rxy', Verbose=True)

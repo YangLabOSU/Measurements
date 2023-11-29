@@ -1,0 +1,54 @@
+from UtilsMeasurementSetup import *
+from UtilsBasic import *
+import time
+
+C=BreakoutBoxConnections()
+S=C.addMatrixSwitch()
+C.addPPMS()
+C.addRotPuckConnection(7,'I+') 
+C.addRotPuckConnection(9,'VL+', SwitchLabel='a') #2182 V+ here to measure Rxx
+C.addRotPuckConnection(11,'VL-') #2182 V- is connectd here (top left Hall lead when current flows up)
+C.addRotPuckConnection(13,'I-') 
+C.addRotPuckConnection(14,'VR-', SwitchLabel='b') #2182 V+ here to measure Rxy
+C.addRotPuckConnection(12,'VR+')
+PL=C.addInstrument(6221,14,SwitchLabels={'V+':'k'})
+#VS=C.addInstrument(2400,15, DeviceName='VoltageSupply')
+print(C.getSettingsString)
+
+#print(C.getSettingsString())
+Angles=CreateArrayWithSteps([0,360],[5])
+for T in [300]:
+    for F in [0,10000,20000,30000,50000,70000,80000,90000,100000,110000,120000,130000,140000,0]:
+        PD_Current=1e-3
+        MS=MeasurementSettings(C)
+
+        MS.setVoltageMeasurementOptions(PulseDelta=True, PDCount=50, PDInterval=10, PDWidth=5e-3, PDSourceDelay=1e-3)
+
+
+         
+        MS.addMeasurementConnection('Rxx',CurrentAmplitude=PD_Current,SwitchConnections=['V+,VL+'], VoltRange='1')
+        MS.addMeasurementConnection('Rxy',CurrentAmplitude=PD_Current,SwitchConnections=['V+,VR-'], VoltRange='0.1')
+
+    
+
+        MS.setMeasurementParams(Angle=Angles,MagneticField=F,Temperature=T,InitialWaitTime=0)
+
+        note='''Re-connected sample correctly. Prevous measurements were along the diagonal, not Rxy.
+        I put these in a subfolder called FirstWiring. 2182- stays connected to pad 11 (VL-).
+        Switches +between 9 for Rxx and 14 for Rxy. Pads are labelled with L or R for left and right
+        when the current flows up (from flat of puck to pads 13/14).
+        At 90 degrees, the fields points towards pad 7, or the "left" side of the Hall bar.
+        All signs should then be correct in the data. 
+        Resistances are ~500 Ohm for Rxx and ~0.2 Ohm for Rxy.'''
+    
+
+        MS.FileSettings(MeasurementID='LSC866_HB_1_{:.1f}F_{:.1f}K_direction'.format(F,T), SampleID='LSC866_1_Pt(3)_LaFeO3(3)_STO(100)',MeasurementNote=note)
+  
+        MS.autoRunMeasurement()
+    #MS.ConnectandPulse('ParPulse')
+    # time.sleep(10)
+    # print(MS.ConnectanddoVoltageMeasurement('Rxx', Verbose=True))
+    # print(MS.ConnectanddoVoltageMeasurement('Rxy', Verbose=True))
+    # PulseAmplitudes=CreateArrayWithSteps([0,52e-3],[2e-3])
+    # MS.PulseAmplitudeSeriesTest(PulseAmplitudes,'10W5L',10000,45,Verbose=False)
+        # MS.RunRvsAngleMeasurementPulse()

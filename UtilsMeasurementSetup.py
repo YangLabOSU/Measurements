@@ -153,7 +153,7 @@ class Instrument:
             print('Dummy 6221')
         print('Added Keithley 6221 with name {} and GPIB number {}'.format(self.DeviceName,GPIBNumber))
         if len(SwitchLabels) > 0:
-            if len(SwitchLabels) == 2:
+            if len(SwitchLabels) <= 2:
             # If Switchlabels are given of the form
             # {'<Positive connection name>:<Positive connection switch terminal>',
             # <Negative connection name>:<Negative connection switch terminal>}
@@ -321,15 +321,16 @@ class MeasurementConnection:
     # current to be continuous. If this is the case the CurrentAmplitude will be overwritten by the continuous current settings.
     # SwitchConnections is a list of the form ['<ConnectionName1>,<PartenerName1>','<ConnectionName2>,<PartenerName2>']
     # Which defines what connections to make in the switch box. This is optional, and requires a Switch to be added first.
-    def __init__(self,MeasurementName,BreakoutBoxConnections,Voltmeter='Voltmeter',CurrentSource='Continuous',CurrentAmplitude=1e-4,SwitchConnections=[]):
+    def __init__(self,MeasurementName,BreakoutBoxConnections,Voltmeter='Voltmeter',CurrentSource='Continuous',CurrentAmplitude=1e-4, VoltRange=1, SwitchConnections=[]):
         self.MeasurementName=MeasurementName
         self.BreakoutBoxConnections=BreakoutBoxConnections
         # Check if the specified current source  and voltmeter exists
         self.BreakoutBoxConnections.getInstrumentfromDeviceName(CurrentSource)
-        self.BreakoutBoxConnections.getInstrumentfromDeviceName(Voltmeter)
+        # self.BreakoutBoxConnections.getInstrumentfromDeviceName(Voltmeter)
         self.Voltmeter=Voltmeter
         self.CurrentSource=CurrentSource
         self.CurrentAmplitude=CurrentAmplitude
+        self.VoltRange=VoltRange
         if len(SwitchConnections) > 0:
             if not hasattr(self.BreakoutBoxConnections,'Switch'):
                 raise NameError('You must define all connections in BreakoutBoxConnections BEFORE defining the measurement settings! (add a Switch object before you set switch connections)')
@@ -345,6 +346,7 @@ class MeasurementConnection:
             # Make dicts between SwitchConnections and SwitchPairs
             self.SwitchConnectiontoSwitchPairdict=dict(zip(self.SwitchConnections, self.SwitchPairs))
             self.SwitchPairtoSwitchConnectiondict=dict(zip(self.SwitchPairs, self.SwitchConnections))
+            
 
 class PulseConnection:
     def __init__(self, PulseName, BreakoutBoxConnections, Pulser='Pulser',PulseAmplitude=0.001, PulseWidth=5e-6, SwitchConnections=[]):
@@ -382,6 +384,7 @@ class MeasurementSettings:
         self.FileSettings()
         self.setVoltageMeasurementOptions()
         self.setCurrentSourceOptions()
+        self.setVoltageSourceOptions()
         self.setPulseOptions()
     
     def FileSettings(self,SampleID='Sample',MeasurementID='Measurement',MeasurementNote='', SaveFolder='auto'):
@@ -405,12 +408,19 @@ class MeasurementSettings:
         else:
             self.SaveFolder=SaveFolder
         
-    def addMeasurementConnection(self,MeasurementName,Voltmeter='Voltmeter',CurrentSource='CurrentSource',CurrentAmplitude=1e-4,SwitchConnections=[]):
+    def addMeasurementConnection(self,MeasurementName,Voltmeter='Voltmeter',CurrentSource='auto',
+                                 CurrentAmplitude=1e-4, VoltRange=1, SwitchConnections=[]):
         # Adds a measurement connection setup to the list.if CurrentSource == 'Continuous':
         if CurrentSource=='Continuous':
             if not hasattr(self,'CCAmplitude'):
                 raise ValueError('When using "Continuous" as the current source, you must define a continuous current first with setContinuousCurrent(amplitdue)')
-        self.MeasurementConnections.append(MeasurementConnection(MeasurementName,self.BreakoutBoxConnections,Voltmeter=Voltmeter,CurrentSource=CurrentSource,CurrentAmplitude=CurrentAmplitude,SwitchConnections=SwitchConnections))
+        if CurrentSource == 'auto':
+            if self.PulseDelta:
+                CurrentSource='Pulser'
+            else:
+                CurrentSource='CurrentSource'
+        self.MeasurementConnections.append(MeasurementConnection(MeasurementName,self.BreakoutBoxConnections,Voltmeter=Voltmeter,CurrentSource=CurrentSource,
+                                                                 CurrentAmplitude=CurrentAmplitude, VoltRange=VoltRange, SwitchConnections=SwitchConnections))
         
     def ListMeasurementNames(self):
         # Gets a list of the measurement names and stores it in self.MeasurementNames.
@@ -443,7 +453,8 @@ class MeasurementSettings:
         else:
             raise ValueError('Can only set the current source to constant if the voltage measurement is unipolar. Change it with setVoltageMeasurementOptions(BiPolar=False)')
         
-    def setVoltageMeasurementOptions(self,NumberofVPoints=30,TimePerPoint=0.1,SkipPoints=5,DropOutliers=3,BiPolar=True, WaitAfterOn=3):
+    def setVoltageMeasurementOptions(self,NumberofVPoints=30,TimePerPoint=0.1,SkipPoints=5,DropOutliers=3,BiPolar=True, 
+                                     PulseDelta=True, PDCount=50, PDInterval=5, PDWidth=500e-6, PDSourceDelay=100e-6, WaitAfterOn=3):
         #Use this function to set custom voltage measurement options. Otherwise the above defaults will be set.
         self.NumberofVPoints=NumberofVPoints
         self.TimePerPoint=TimePerPoint
@@ -451,11 +462,21 @@ class MeasurementSettings:
         self.DropOutliers=DropOutliers
         self.BiPolar=BiPolar
         self.WaitAfterOn=WaitAfterOn
+        self.PulseDelta=PulseDelta
+        self.PDCount=PDCount
+        self.PDInterval=PDInterval
+        self.PDWidth=PDWidth
+        self.PDSourceDelay=PDSourceDelay
         
-    def setCurrentSourceOptions(self,SourceCurrentRange=10e-3,SourceComplianceVoltage=20):
+    def setCurrentSourceOptions(self,SourceCurrentRange=0,SourceComplianceVoltage=0):
         #Use this function to set custom current source options. Otherwise the above defaults will be set.
         self.SourceCurrentRange=SourceCurrentRange
         self.SourceComplianceVoltage=SourceComplianceVoltage
+
+    def setVoltageSourceOptions(self,SourceVoltageRange=0,SourceComplianceCurrent=0):
+        #Use this function to set custom current source options. Otherwise the above defaults will be set.
+        self.SourceVoltageRange=SourceVoltageRange
+        self.SourceComplianceCurrent=SourceComplianceCurrent
 
     def setPulseOptions(self,WaitTimeAfterPulseArm=2,WaitAfterPulse=0.3):
         #Use this function to set custom current source options. Otherwise the above defaults will be set.
@@ -470,8 +491,10 @@ class MeasurementSettings:
         if not isinstance(CurrentSourceInstrument.InstrumentObject,Empty):
             # Check if the instrument is a dummy or not
             CSIO.apply_current()  # Sets up to source current
-            CSIO.source_current_range = self.SourceCurrentRange
-            CSIO.compliance_voltage = self.SourceComplianceVoltage
+            if self.SourceCurrentRange != 0:
+                CSIO.source_current_range = self.SourceCurrentRange
+            if self.SourceComplianceVoltage != 0:
+                CSIO.compliance_voltage = self.SourceComplianceVoltage
             CSIO.source_current = CurrentAmplitude
             CSIO.enable_source()
         time.sleep(self.WaitAfterOn)
@@ -483,7 +506,30 @@ class MeasurementSettings:
         if not isinstance(CurrentSourceInstrument.InstrumentObject,Empty):
             CurrentSourceInstrument.InstrumentObject.shutdown()
 
-    def MeasureVoltage(self,Voltmeter='Voltmeter', CurrentSource='CurrentSource', CurrentAmplitude=1e-5, Verbose=False):
+    def ApplyVoltage(self,VoltageSourceInstrument,VoltageAmplitude=1, Verbose=False):
+        # Use this function to have the current source output current
+        VSIO=VoltageSourceInstrument.InstrumentObject
+        if Verbose:
+            print('Sourcing Voltage of {:.1e} from {}'.format(VoltageAmplitude,VoltageSourceInstrument.DeviceName))
+        if not isinstance(VoltageSourceInstrument.InstrumentObject,Empty):
+            # Check if the instrument is a dummy or not
+            VSIO.apply_voltage()
+            if self.SourceVoltageRange != 0:
+                VSIO.source_voltage_range = self.SourceVoltageRange
+            if self.SourceComplianceVoltage != 0:
+                VSIO.compliance_current = self.SourceComplianceCurrent
+            VSIO.source_voltage = VoltageAmplitude
+            VSIO.enable_source()
+        time.sleep(self.WaitAfterOn)
+
+    def VoltageOff(self,VoltageSourceInstrument, Verbose=False):
+        #Use this function to have the voltage source turn off its output
+        if Verbose:
+            print('Stopping output from {}'.format(VoltageSourceInstrument.DeviceName))
+        if not isinstance(VoltageSourceInstrument.InstrumentObject,Empty):
+            VoltageSourceInstrument.InstrumentObject.shutdown()
+
+    def MeasureVoltageDC(self,Voltmeter='Voltmeter', CurrentSource='CurrentSource', CurrentAmplitude=1e-5, Verbose=False):
         #This function measures the voltage and standard deviation at a given Voltmeter. 
         #If the CCFlag is negative, it will first apply a current with the given Current Source
 
@@ -549,6 +595,16 @@ class MeasurementSettings:
             average_v = np.array(v_up).mean()
             std_v = np.array(v_up).std()
             return average_v, std_v
+
+    def MeasureVoltagePulseDelta(self, CurrentSource='Pulser', CurrentAmplitude=1e-5, VoltRange=1):
+        #This function measures the voltage and standard deviation at a given Voltmeter using 6221 pulse delta. 
+
+        #First get the Current Source Instrument object from the Device Names given.
+        CS=self.BreakoutBoxConnections.getInstrumentfromDeviceName(CurrentSource)
+        average_v, std_v = CS.InstrumentObject.PulseDeltaMeasurement(amp=CurrentAmplitude, count=self.PDCount, 
+                                                                     interval=self.PDInterval, width=self.PDWidth, 
+                                                                     sourcedelay=self.PDSourceDelay, range=VoltRange)
+        return average_v, std_v
             
     def ConnectanddoVoltageMeasurement(self,ConnectionMeasurementName, Verbose=False):
         # Measures the resistance of a given connection and stores it. If switch ports are provided,does switch connection first.
@@ -567,8 +623,12 @@ class MeasurementSettings:
                     print('Connected {} corresponding to {} on the SwitchBox.'.format(MeasurementConnection.SwitchPairtoSwitchConnectiondict[SwitchPair],SwitchPair))
                 time.sleep(self.WaitAfterSwitch)
         # Measure the resistance
-        average_v,std_v=self.MeasureVoltage(Voltmeter=MeasurementConnection.Voltmeter,CurrentSource=MeasurementConnection.CurrentSource, 
-                                            CurrentAmplitude=MeasurementConnection.CurrentAmplitude, Verbose=Verbose)
+        if self.PulseDelta:
+            average_v,std_v=self.MeasureVoltagePulseDelta(CurrentSource=MeasurementConnection.CurrentSource, 
+                                                CurrentAmplitude=MeasurementConnection.CurrentAmplitude, VoltRange=MeasurementConnection.VoltRange)
+        else:
+            average_v,std_v=self.MeasureVoltageDC(Voltmeter=MeasurementConnection.Voltmeter,CurrentSource=MeasurementConnection.CurrentSource, 
+                                                CurrentAmplitude=MeasurementConnection.CurrentAmplitude, Verbose=Verbose)
         # Resest the switch again if SwitchPairs is provided
         if hasattr(MeasurementConnection,'SwitchPairs'):
             if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
@@ -579,7 +639,7 @@ class MeasurementSettings:
         # returns back the DC measurement current amplitude, average voltage, and standard deviation
         return MeasurementConnection.CurrentAmplitude,average_v, std_v
             
-    def ConnectandPulse(self,PulseName, Verbose=False):
+    def ConnectandPulse(self,PulseName, Verbose=False, SwitchPolarity=False):
         # Sends the pulse defined in the given PulseName. If switch ports are provided,does switch connection first.
         # First get the PulseConnection object from the name
         self.ListPulseNames()
@@ -599,10 +659,14 @@ class MeasurementSettings:
                     print('Connected {} corresponding to {} on the SwitchBox.'.format(PulseConnection.SwitchPairtoSwitchConnectiondict[SwitchPair],SwitchPair))
                 time.sleep(self.WaitAfterSwitch)
         # Send the pulse
+        if SwitchPolarity:
+            PulseAmplitude=-PulseConnection.PulseAmplitude
+        else:
+            PulseAmplitude=PulseConnection.PulseAmplitude
         if not isinstance(PS.InstrumentObject,Empty):
-            PS.InstrumentObject.pulseOut(amp=PulseConnection.PulseAmplitude, duration=PulseConnection.PulseWidth, wait_after_arm=self.WaitTimeAfterPulseArm)
+            PS.InstrumentObject.pulseOut(amp=PulseAmplitude, duration=PulseConnection.PulseWidth, wait_after_arm=self.WaitTimeAfterPulseArm)
         if Verbose:
-            print('Sending {:.2f} mA pulse'.format(PulseConnection.PulseAmplitude*1e3))
+            print('Sending {:.2f} mA pulse'.format(PulseAmplitude*1e3))
         time.sleep(self.WaitAfterPulse)
         # Resest the switch again if SwitchPairs is provided
         if hasattr(PulseConnection,'SwitchPairs'):
@@ -611,12 +675,91 @@ class MeasurementSettings:
             if Verbose:
                 print('Reset the switch')
 
-    def SendAllPulses(self, Verbose=False):
+    def PulseAmplitudeSeriesTest(self,PulseAmplitudes,PulseNames,InitializeField,Angle,Verbose=False):
+        # Performs a series of increasing amplitude pulses with the connection given by PulseName. 
+        self.SaveFolder='./data/PPMS_switch/'
+        self.MagneticField=InitializeField
+        self.Angle=Angle
+        self.MeasurementType='RvsPulseAmp'
+        #Reset Switch conenctions, if any
+        if hasattr(self.BreakoutBoxConnections,'Switch'):
+            if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
+                self.BreakoutBoxConnections.Switch.sendCommand('reset')
+            else:
+                print('Dummy Switch reset')
+        if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+            # set the temperature. Only one temperature is allowed.
+            self.BreakoutBoxConnections.PPMS.setTemperature(self.Temperature)
+        # Go to the saturation field
+        if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+            self.BreakoutBoxConnections.PPMS.setField(self.MagneticField)
+        if Verbose:
+            print('rotating to angle {:.1f} degrees...'.format(self.Angle))
+        if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+            self.BreakoutBoxConnections.PPMS.setPosition(self.Angle)
+
+        if self.WaitForSetpoints:
+            #Wait for them to be reached
+            if not isinstance(self.BreakoutBoxConnections.PPMS,Empty): 
+                self.BreakoutBoxConnections.PPMS.waitForTemperature()
+                self.BreakoutBoxConnections.PPMS.waitForField()
+                self.BreakoutBoxConnections.PPMS.waitForPosition()
+            else:
+                print('Dummy wait 2s...')
+                time.sleep(2)
+            if Verbose:
+                print('Waiting for setpoints...')
+        
+        if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+            self.BreakoutBoxConnections.PPMS.setField(0)
+            
+        if self.WaitForSetpoints:
+            #Wait for them to be reached
+            if not isinstance(self.BreakoutBoxConnections.PPMS,Empty): 
+                self.BreakoutBoxConnections.PPMS.waitForField()
+            else:
+                print('Dummy wait 2s...')
+                time.sleep(2)
+            if Verbose:
+                print('Waiting for setpoints...')
+
+        time.sleep(self.InitialWaitTime)
+
+        # Start recording the datafile
+        self.StartDataRecording()
+        
+        # First get the PulseConnection object from the name
+        self.ListPulseNames()
+        
+        for PulseAmplitude in PulseAmplitudes:
+            for PulseName in PulseNames:
+                PulseConnection=self.PulseNamedict[PulseName]
+                # And get the Pulser object from the pulser name
+                PS=self.BreakoutBoxConnections.getInstrumentfromDeviceName(PulseConnection.Pulser)
+                # If SwitchPairs is defined for the PulseConnection, then get first connect those 
+                if hasattr(PulseConnection,'SwitchPairs'):
+                    for SwitchPair in PulseConnection.SwitchPairs:
+                        # Check if the Switch is a dummy first
+                        if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
+                            self.BreakoutBoxConnections.Switch.sendCommand('on {}'.format(SwitchPair))
+                        if Verbose:
+                            print('Connected {} corresponding to {} on the SwitchBox.'.format(PulseConnection.SwitchPairtoSwitchConnectiondict[SwitchPair],SwitchPair))
+                        time.sleep(self.WaitAfterSwitch)
+                if not isinstance(PS.InstrumentObject,Empty):
+                    PS.InstrumentObject.pulseOut(amp=PulseAmplitude, duration=PulseConnection.PulseWidth, wait_after_arm=self.WaitTimeAfterPulseArm)
+                if Verbose:
+                    print('Sending {:.2f} mA pulse'.format(PulseConnection.PulseAmplitude*1e3))
+                time.sleep(self.WaitAfterPulse)
+                self.BreakoutBoxConnections.Switch.sendCommand('reset')
+                time.sleep(self.WaitAfterPulse)
+            self.doMeasurementsandRecordData(Verbose=Verbose,PlotData=True,PulseChannel='{}>{:.5f}'.format('_'.join(PulseNames),PulseAmplitude))
+
+    def SendAllPulses(self, Verbose=False, SwitchPolarity=False):
         # Does the previously set measurements and records the data to the datafile
         self.getPPMSCurrentParams()
         self.ListPulseNames()
         for PulseName in self.PulseNames:
-            self.ConnectandPulse(PulseName, Verbose=Verbose)
+            self.ConnectandPulse(PulseName, Verbose=Verbose, SwitchPolarity=SwitchPolarity)
         
     def DetermineMeasurementType(self, Verbose=False):
         # Measurement type (RvsT, RvsH, or RvsAngle)is determined based on the length of the given properties
@@ -627,7 +770,7 @@ class MeasurementSettings:
         if type(self.Angle) == list:
             if type(self.MagneticField) != list and type(self.Temperature) != list:
                 self.MeasurementType='RvsAngle'
-            elif 1 < len(self.MagneticField) < 3  and type(self.Temperature) != list:
+            elif 1 < len(self.MagneticField) < 15  and type(self.Temperature) != list:
                 self.MeasurementType='RvsAngle_Remnant'
             else:
                 raise ValueError('Could not determine measurement type. Set multiple values for only one parameter at a time (except for ' +
@@ -1043,6 +1186,78 @@ class MeasurementSettings:
             self.doMeasurementsandRecordData(Verbose=Verbose,PulseChannel=' '.join(self.PulseNames))
         
         
+    def RunRvsAngleMeasurementPulseField(self, Angles=-999, RvsAnglesetMagneticField=-999, RvsAnglesetTemperature=-999, Verbose=False):
+        # Runs an R vs Angle measurement with a positive and negative pulse at each angle and a constant field. 
+        # Measurement parameters can either be set previously with the setMeasurementParams function, or 
+        # when calling this function. If they are given in this function, they will overwrite previously given parameters.
+
+        if not hasattr(self,'MeasurementType'):
+            # If parameters have not been set yet
+            if RvsAnglesetMagneticField==-999 or RvsAnglesetTemperature==-999 or Angles == -999:
+                # and they are not all given in this function, raise error
+                raise ValueError('Set all the measurement parameters first. Either in this function call or with setMeasurementParams')
+            else:
+                # If they have not been set, and they are given in this function, get defaults + the ones given by this function.
+                self.setMeasurementParams(Angle=Angles,MagneticField=RvsAnglesetMagneticField, Temperature=RvsAnglesetTemperature)
+        else:
+            # If there are previously set parameters
+            if Angles != -999: 
+                # update if they are given here
+                self.Angle=Angles
+            if RvsAnglesetMagneticField != -999: 
+                self.MagneticField=RvsAnglesetMagneticField
+            if RvsAnglesetTemperature != -999: 
+                self.Temperature=RvsAnglesetTemperature
+            # and update the measurement type
+            self.MeasurementType='RvsAngle_Pulse_Field'
+    
+            self.SaveFolder='./data/PPMS_switch/'
+        
+        #Reset Switch conenctions, if any
+        if hasattr(self.BreakoutBoxConnections,'Switch'):
+            if not isinstance(self.BreakoutBoxConnections.Switch,Empty):
+                self.BreakoutBoxConnections.Switch.sendCommand('reset')
+            else:
+                print('Dummy Switch reset')
+            
+        if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+            # set the temperature. Only one temperature is allowed.
+            self.BreakoutBoxConnections.PPMS.setTemperature(self.Temperature)
+        # Go to the field
+        if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+            self.BreakoutBoxConnections.PPMS.setField(self.MagneticField)
+        if self.WaitForSetpoints:
+            #Wait for them to be reached
+            if not isinstance(self.BreakoutBoxConnections.PPMS,Empty): 
+                self.BreakoutBoxConnections.PPMS.waitForTemperature()
+                self.BreakoutBoxConnections.PPMS.waitForField()
+            else:
+                print('Dummy wait 2s...')
+                time.sleep(2)
+            if Verbose:
+                print('Waiting for setpoints...')
+        time.sleep(self.InitialWaitTime)
+
+        # Start recording the datafile
+        self.StartDataRecording()
+        
+        for angle in self.Angle:
+            if Verbose:
+                print('rotating to angle {:.1f} degrees...'.format(angle))
+            if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+                self.BreakoutBoxConnections.PPMS.setPosition(angle)
+                self.BreakoutBoxConnections.PPMS.waitForPosition()
+            
+            # Make sure it is at the field (but dont wait for it)
+            if not isinstance(self.BreakoutBoxConnections.PPMS,Empty):
+                self.BreakoutBoxConnections.PPMS.setField(self.MagneticField)
+
+            self.doMeasurementsandRecordData(Verbose=Verbose)
+            self.SendAllPulses(Verbose=Verbose, SwitchPolarity=False)
+            self.doMeasurementsandRecordData(Verbose=Verbose,PulseChannel=' '.join(self.PulseNames))
+            self.SendAllPulses(Verbose=Verbose, SwitchPolarity=True)
+            self.doMeasurementsandRecordData(Verbose=Verbose,PulseChannel='switched_polarity'+' '.join(self.PulseNames))
+        
     def __repr__(self):
     # For printing the contents of this class
         OutPString=''
@@ -1062,6 +1277,7 @@ class MeasurementSettings:
             if not self.CCFlag:
                 OutPString += '\n\t Current Source Name: {}'.format(i.CurrentSource)
                 OutPString += '\n\t Current Amplitude: {0:.2f}mA'.format(i.CurrentAmplitude*1000)
+                OutPString += '\n\t Voltage Range (for Pulse Delta): {0:.1f}V'.format(float(i.VoltRange))
             if hasattr(i,'SwitchConnections'):
                 OutPString += '\n\t {:30s}{:14s}:'.format('Switch Connection Pairs','Matrix Switch Addresses')
                 for j in range(len(i.SwitchConnections)):
@@ -1073,6 +1289,10 @@ class MeasurementSettings:
         OutPString += '\n\ncurrent source range: {0:.1f}(mA)'.format(self.SourceCurrentRange*1e3)
         OutPString += '\ncurrent source compliance voltage: {0:.1f}(V)'.format(self.SourceComplianceVoltage)
         
+        OutPString += '\n\nVoltage Source Settings:'
+        OutPString += '\n\nvoltage source range: {0:.1f}(V)'.format(self.SourceVoltageRange)
+        OutPString += '\nvoltage source compliance current: {0:.1e}(A)'.format(self.SourceComplianceCurrent)
+
         OutPString += '\n\nVoltage Measurement Settings:'
         OutPString += '\n\naverage both current polarities?: {}'.format(self.BiPolar)
         OutPString += '\nwait time after current turns on to start measuring: {0:.2f}(s)'.format(self.WaitAfterOn)
@@ -1080,7 +1300,12 @@ class MeasurementSettings:
         OutPString += '\ntime per Voltage measurement point: {0:.2f}(s)'.format(self.TimePerPoint)
         OutPString += '\nnumber of Voltage measurement points to skip at ends: {}'.format(self.SkipPoints)
         OutPString += '\nnumber of Voltage measurement outlier points to drop at each end: {}'.format(self.DropOutliers)
-        
+        OutPString += '\nPulse Delta? (overwrites DC settings): {}'.format(self.PulseDelta)
+        OutPString += '\nPulse Delta count: {}'.format(self.PDCount)
+        OutPString += '\nPulse Delta interval (number of 60Hz cycles): {}'.format(self.PDInterval)
+        OutPString += '\nPulse Delta width: {}'.format(self.PDWidth)
+        OutPString += '\nPulse Delta source delay: {}'.format(self.PDSourceDelay)
+
         OutPString += '\n\nPulse List:'
         for i in self.PulseConnections:
             OutPString += '\n\n\t Pulse Name:'
@@ -1089,7 +1314,7 @@ class MeasurementSettings:
             OutPString += str(i.Pulser)
             OutPString += '\n\t Pulse Current : {0:.4e}A'.format(i.PulseAmplitude)
             OutPString += '\n\t Pulse Width : {:.4e}s'.format(i.PulseWidth)
-            if len(i.SwitchConnections) > 0:
+            if hasattr(i,'SwitchConnections'):
                 OutPString += '\n\t {:30s}{:14s}:'.format('Switch Connection Pairs','Matrix Switch Addresses')
                 for j in range(len(i.SwitchConnections)):
                     OutPString += '\n\t {:8s}{:5s}{:20s}{:3s}{:3s}{:10s}'.format(i.SwitchConnections[j].split(',')[0],',',
@@ -1144,6 +1369,8 @@ def PlotSMR(FileName):
                 MeasType='RvsH'
             elif 'RvsT' in line:
                 MeasType='RvsT'
+            elif 'RvsPulseAmp' in line:
+                MeasType='RvsPulseAmp'
     
     df = pd.read_csv(FileName, header=hlength)
     #print(df)
@@ -1153,8 +1380,23 @@ def PlotSMR(FileName):
         df['RoundedTemp']=df['Temp(K)'].round(0).astype(int)
         df['RoundedAngle']=df['Angle(deg)'].round(0).astype(int)
         df['RoundedField']=df['Field(Oe)'].apply(lambda x: custom_round(x, base=5)).astype(int)
-        df['FieldName']=~pd.isnull(df['PulseChannel'])
-        df['FieldName'] = np.where(df['FieldName'], 'Pulsed', df['RoundedField'])
+        pulsed=~pd.isnull(df['PulseChannel'])
+        if pulsed.sum()>0:
+            negative_pulsed=df['PulseChannel'][pulsed].str.contains('switched_polarity')
+        else:
+            negative_pulsed=pulsed
+        FieldName=[]
+        for i in range(len(df['RoundedField'])):
+            rounded_field=str(df['RoundedField'].iloc[i])
+            if pulsed[i] and not negative_pulsed[i]:
+                pulsed_name='Pulsed_'
+            elif pulsed[i] and negative_pulsed[i]:
+                pulsed_name='neg_Pulsed_'
+            else:
+                pulsed_name=''
+            FieldName.append(pulsed_name+rounded_field)
+        df['FieldName'] = FieldName
+        # df['FieldName'] = np.where(positive_pulsed, 'Pulsed_'+df['RoundedField'], df['RoundedField'])
         fig,ax=plt.subplots()
 
         plt.suptitle(FileName.split('/')[-1][:-4]+'_'+measname)
@@ -1168,11 +1410,17 @@ def PlotSMR(FileName):
         elif MeasType == 'RvsT':
             ax.plot(df['Temp(K)'],df[measname+'_Average_V']/df[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname)
             ax.set_xlabel('Temp(K)')
+        elif MeasType == 'RvsPulseAmp':
+            df[['PulseName', 'PulseAmp']] = df['PulseChannel'].str.split('>', 1, expand=True)
+            df["PulseAmp"]=df["PulseAmp"].astype(float)*1e3
+            ax.plot(df['PulseAmp'],df[measname+'_Average_V']/df[measname+'_DC_Current(A)'], linestyle='-',marker='o', markersize='2',linewidth=1, label=measname)
+            ax.set_xlabel('PulseAmp(mA)')
 
         ax.set_ylabel('$\Omega$')
         ax.legend()
         fig.savefig(FileName[:-4]+'_'+measname+'.png', dpi=600)
         
+      
 '''Example Usage:
 C=BreakoutBoxConnections()
 C.addMatrixSwitch()
